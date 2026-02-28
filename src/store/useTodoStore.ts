@@ -14,6 +14,7 @@ type TodoState = {
   moveTab: (fromIndex: number, toIndex: number) => void;
   setActiveTab: (tabId: string) => void;
   addTask: (tabId: string, text: string) => void;
+  addTaskAt: (tabId: string, text: string, index: number) => string;
   updateTask: (tabId: string, taskId: string, text: string) => void;
   deleteTask: (tabId: string, taskId: string) => void;
   toggleTask: (tabId: string, taskId: string) => void;
@@ -81,12 +82,27 @@ export const useTodoStore = create<TodoState>()(
             return state;
           }
 
+          const removedIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+          if (removedIndex === -1) {
+            return state;
+          }
+
           const tabs = state.tabs.filter((tab) => tab.id !== tabId);
-          const activeTab = findActiveTab(tabs, state.activeTabId);
+
+          if (state.activeTabId !== tabId) {
+            const activeTab = findActiveTab(tabs, state.activeTabId);
+            return {
+              tabs,
+              activeTabId: activeTab.id,
+            };
+          }
+
+          const previousIndex = Math.max(0, removedIndex - 1);
+          const nextActiveTab = tabs[previousIndex] ?? tabs[0];
 
           return {
             tabs,
-            activeTabId: activeTab.id,
+            activeTabId: nextActiveTab.id,
           };
         }),
 
@@ -115,6 +131,36 @@ export const useTodoStore = create<TodoState>()(
               : tab,
           ),
         })),
+
+      addTaskAt: (tabId, text, index) => {
+        const insertedTaskId = createId();
+
+        set((state) => ({
+          tabs: state.tabs.map((tab) => {
+            if (tab.id !== tabId) {
+              return tab;
+            }
+
+            const clampedIndex = Math.max(0, Math.min(index, tab.tasks.length));
+            const newTask = {
+              id: insertedTaskId,
+              text,
+              completed: false,
+            };
+
+            return {
+              ...tab,
+              tasks: [
+                ...tab.tasks.slice(0, clampedIndex),
+                newTask,
+                ...tab.tasks.slice(clampedIndex),
+              ],
+            };
+          }),
+        }));
+
+        return insertedTaskId;
+      },
 
       updateTask: (tabId, taskId, text) =>
         set((state) => ({
@@ -194,15 +240,35 @@ export const useTodoStore = create<TodoState>()(
               return tab;
             }
 
-            const movedTasks = moveArrayItem(tab.tasks, fromIndex, toIndex);
-            const uncompletedTasks = movedTasks.filter(
-              (task) => !task.completed,
+            if (
+              fromIndex < 0 ||
+              toIndex < 0 ||
+              fromIndex >= tab.tasks.length ||
+              toIndex >= tab.tasks.length
+            ) {
+              return tab;
+            }
+
+            const fromTask = tab.tasks[fromIndex];
+            if (!fromTask) {
+              return tab;
+            }
+
+            const firstCompletedIndex = tab.tasks.findIndex(
+              (task) => task.completed,
             );
-            const completedTasks = movedTasks.filter((task) => task.completed);
+
+            const canMove = fromTask.completed
+              ? firstCompletedIndex !== -1 && toIndex >= firstCompletedIndex
+              : firstCompletedIndex === -1 || toIndex < firstCompletedIndex;
+
+            if (!canMove) {
+              return tab;
+            }
 
             return {
               ...tab,
-              tasks: [...uncompletedTasks, ...completedTasks],
+              tasks: moveArrayItem(tab.tasks, fromIndex, toIndex),
             };
           }),
         })),

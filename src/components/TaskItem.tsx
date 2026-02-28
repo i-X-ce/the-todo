@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import {
@@ -8,61 +9,66 @@ import {
   Stack,
   TextField,
 } from "@mui/material";
-import { useDrag, useDrop } from "react-dnd";
 import type { TodoTask } from "../types";
 
-const DND_TYPE = "task";
-
-type DragTask = { index: number };
-
 type TaskItemProps = {
-  index: number;
   task: TodoTask;
   onToggle: () => void;
   onDelete: () => void;
+  onInsertBelow: () => void;
   onSave: (text: string) => void;
-  onMoveTask: (fromIndex: number, toIndex: number) => void;
+  shouldAutoFocus: boolean;
+  onAutoFocusHandled: () => void;
+  onDragStart: (event: React.DragEvent<HTMLLIElement>) => void;
+  onDragEnd: () => void;
+  onDragOver: (event: React.DragEvent<HTMLLIElement>) => void;
+  onDragEnter: (event: React.DragEvent<HTMLLIElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLLIElement>) => void;
 };
 
 export function TaskItem({
-  index,
   task,
   onToggle,
   onDelete,
+  onInsertBelow,
   onSave,
-  onMoveTask,
+  shouldAutoFocus,
+  onAutoFocusHandled,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragEnter,
+  onDrop,
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.text);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setDraft(task.text);
   }, [task.text]);
 
-  const [{ isDragging }, dragRef] = useDrag(
-    () => ({
-      type: DND_TYPE,
-      item: { index } satisfies DragTask,
-      collect: (monitor) => ({
-        isDragging: monitor.isDragging(),
-      }),
-    }),
-    [index],
-  );
+  useLayoutEffect(() => {
+    if (!shouldAutoFocus) {
+      return;
+    }
 
-  const [, dropRef] = useDrop(
-    () => ({
-      accept: DND_TYPE,
-      hover: (dragItem: DragTask) => {
-        if (dragItem.index === index) {
-          return;
-        }
-        onMoveTask(dragItem.index, index);
-        dragItem.index = index;
-      },
-    }),
-    [index, onMoveTask],
-  );
+    setDraft(task.text);
+    setEditing(true);
+  }, [shouldAutoFocus, task.text]);
+
+  useEffect(() => {
+    if (!shouldAutoFocus || !editing) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      const length = inputRef.current?.value.length ?? 0;
+      inputRef.current?.setSelectionRange(length, length);
+      onAutoFocusHandled();
+    });
+  }, [shouldAutoFocus, editing, onAutoFocusHandled]);
 
   const finishEdit = () => {
     const nextText = draft.trim();
@@ -74,13 +80,14 @@ export function TaskItem({
 
   return (
     <ListItem
-      ref={(node: HTMLLIElement | null) => {
-        dragRef(node);
-        dropRef(node);
-      }}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragEnter={onDragEnter}
+      onDrop={onDrop}
       disablePadding
       sx={{
-        opacity: isDragging ? 0.5 : 1,
         px: 1,
         py: 0.5,
       }}
@@ -96,17 +103,24 @@ export function TaskItem({
         {editing ? (
           <TextField
             autoFocus
+            inputRef={inputRef}
             variant="standard"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onBlur={finishEdit}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
+                event.preventDefault();
                 finishEdit();
+                onInsertBelow();
               }
               if (event.key === "Escape") {
                 setDraft(task.text);
                 setEditing(false);
+              }
+              if (event.key === "Backspace" && draft.length === 0) {
+                event.preventDefault();
+                onDelete();
               }
             }}
             sx={{ flex: 1 }}
@@ -128,14 +142,12 @@ export function TaskItem({
                 color: task.completed ? "text.secondary" : "text.primary",
                 cursor: "text",
               },
-              "& .MuiInput-underline:before": { borderBottom: "none" },
-              "& .MuiInput-underline:hover:not(.Mui-disabled):before": {
-                borderBottom: "none",
-              },
-              "& .MuiInput-underline:after": { borderBottom: "none" },
             }}
           />
         )}
+        <IconButton onClick={onInsertBelow} size="small" sx={{ opacity: 0.6 }}>
+          <AddIcon fontSize="small" />
+        </IconButton>
         <IconButton onClick={onDelete} size="small">
           <DeleteOutlineIcon fontSize="small" />
         </IconButton>

@@ -1,20 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
-import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import { IconButton, Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 import {
-  Box,
-  IconButton,
-  Paper,
-  Stack,
-  TextField,
-  Tooltip,
-  Typography,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
 } from "@mui/material";
-import { useDrag, useDrop } from "react-dnd";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import type { TodoTab } from "../types";
-
-const DND_TYPE = "tab";
 
 type TabBarProps = {
   tabs: TodoTab[];
@@ -26,126 +22,6 @@ type TabBarProps = {
   onMoveTab: (fromIndex: number, toIndex: number) => void;
 };
 
-type DraggableTabProps = {
-  index: number;
-  tab: TodoTab;
-  selected: boolean;
-  canDelete: boolean;
-  onRemoveTab: (tabId: string) => void;
-  onRenameTab: (tabId: string, title: string) => void;
-  onSelectTab: (tabId: string) => void;
-  onMoveTab: (fromIndex: number, toIndex: number) => void;
-};
-
-type DragTab = { index: number };
-
-function DraggableTab({
-  index,
-  tab,
-  selected,
-  canDelete,
-  onRemoveTab,
-  onRenameTab,
-  onSelectTab,
-  onMoveTab,
-}: DraggableTabProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(tab.title);
-
-  const [{ isDragging }, dragRef] = useDrag(
-    () => ({
-      type: DND_TYPE,
-      item: { index } satisfies DragTab,
-      collect: (monitor) => ({
-        isDragging: monitor.isDragging(),
-      }),
-    }),
-    [index],
-  );
-
-  const [, dropRef] = useDrop(
-    () => ({
-      accept: DND_TYPE,
-      hover: (dragItem: DragTab) => {
-        if (dragItem.index === index) {
-          return;
-        }
-        onMoveTab(dragItem.index, index);
-        dragItem.index = index;
-      },
-    }),
-    [index, onMoveTab],
-  );
-
-  return (
-    <Paper
-      ref={(node: HTMLDivElement | null) => {
-        dragRef(node);
-        dropRef(node);
-      }}
-      variant={selected ? "elevation" : "outlined"}
-      elevation={selected ? 2 : 0}
-      sx={{
-        minWidth: 180,
-        opacity: isDragging ? 0.5 : 1,
-        px: 1,
-        py: 0.5,
-        cursor: "pointer",
-      }}
-      onClick={() => onSelectTab(tab.id)}
-    >
-      <Stack direction="row" spacing={1} alignItems="center">
-        <DragIndicatorIcon fontSize="small" color="action" />
-        {editing ? (
-          <TextField
-            autoFocus
-            size="small"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={() => {
-              onRenameTab(tab.id, draft);
-              setEditing(false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onRenameTab(tab.id, draft);
-                setEditing(false);
-              }
-              if (event.key === "Escape") {
-                setDraft(tab.title);
-                setEditing(false);
-              }
-            }}
-            sx={{ flex: 1 }}
-          />
-        ) : (
-          <Typography
-            variant="body2"
-            noWrap
-            onDoubleClick={() => {
-              setDraft(tab.title);
-              setEditing(true);
-            }}
-            sx={{ flex: 1 }}
-          >
-            {tab.title}
-          </Typography>
-        )}
-        <IconButton
-          size="small"
-          disabled={!canDelete}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemoveTab(tab.id);
-          }}
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Stack>
-    </Paper>
-  );
-}
-
 export function TabBar({
   tabs,
   activeTabId,
@@ -155,28 +31,127 @@ export function TabBar({
   onSelectTab,
   onMoveTab,
 }: TabBarProps) {
+  const [tabListRef, enableTabAnimations] = useAutoAnimate();
+  const [isTabDragging, setIsTabDragging] = useState(false);
+  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
+  const [pendingDeleteTabId, setPendingDeleteTabId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    enableTabAnimations(isTabDragging);
+  }, [enableTabAnimations, isTabDragging]);
+
   return (
-    <Box>
-      <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 1 }}>
-        {tabs.map((tab, index) => (
-          <DraggableTab
-            key={tab.id}
-            index={index}
-            tab={tab}
-            selected={tab.id === activeTabId}
-            canDelete={tabs.length > 1}
-            onRemoveTab={onRemoveTab}
-            onRenameTab={onRenameTab}
-            onSelectTab={onSelectTab}
-            onMoveTab={onMoveTab}
-          />
-        ))}
-        <Tooltip title="タブを追加">
-          <IconButton onClick={onAddTab}>
-            <AddIcon />
-          </IconButton>
-        </Tooltip>
+    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+      <Stack direction="row" alignItems="center" sx={{ minHeight: 42 }}>
+        <Tabs
+          value={activeTabId}
+          onChange={(_, value) => onSelectTab(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          slotProps={{ list: { ref: tabListRef } }}
+          sx={{
+            minHeight: 42,
+            flex: 1,
+            "& .MuiTabs-indicator": {
+              height: 3,
+            },
+          }}
+        >
+          {tabs.map((tab, index) => (
+            <Tab
+              key={tab.id}
+              draggable
+              onDoubleClick={() => {
+                const next = window.prompt("タブ名を編集", tab.title);
+                if (next !== null) {
+                  onRenameTab(tab.id, next);
+                }
+              }}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", String(index));
+                setIsTabDragging(true);
+                setDragFromIndex(index);
+              }}
+              onDragEnd={() => {
+                setIsTabDragging(false);
+                setDragFromIndex(null);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+              }}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (dragFromIndex === null || dragFromIndex === index) {
+                  return;
+                }
+                onMoveTab(dragFromIndex, index);
+                setDragFromIndex(index);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+              }}
+              disableRipple
+              value={tab.id}
+              label={
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="body2" noWrap>
+                    {tab.title}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    disabled={tabs.length <= 1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPendingDeleteTabId(tab.id);
+                    }}
+                  >
+                    <CloseIcon fontSize="inherit" />
+                  </IconButton>
+                </Stack>
+              }
+              sx={{
+                minHeight: 42,
+                textTransform: "none",
+                px: 0.75,
+                flexShrink: 0,
+                minWidth: "max-content",
+                maxWidth: "none",
+                borderRadius: 1,
+              }}
+            />
+          ))}
+        </Tabs>
+        <IconButton onClick={onAddTab} size="small" sx={{ mx: 0.5 }}>
+          <AddIcon fontSize="small" />
+        </IconButton>
       </Stack>
+
+      <Dialog
+        open={pendingDeleteTabId !== null}
+        onClose={() => setPendingDeleteTabId(null)}
+      >
+        <DialogTitle>タブを削除しますか？</DialogTitle>
+        <DialogContent>このタブに含まれるToDoも削除されます。</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingDeleteTabId(null)}>
+            キャンセル
+          </Button>
+          <Button
+            color="error"
+            onClick={() => {
+              if (pendingDeleteTabId) {
+                onRemoveTab(pendingDeleteTabId);
+              }
+              setPendingDeleteTabId(null);
+            }}
+          >
+            削除
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
